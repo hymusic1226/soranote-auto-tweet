@@ -34,8 +34,9 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "post_type=${{ github.event.inputs.post_type }}" >> $GITHUB_OUTPUT
           else
+            # cronの遅延を考慮しUTC時間帯で判定（18〜23時台 → 朝、それ以外 → 夜）
             HOUR=$(date -u +%H)
-            if [ "$HOUR" = "22" ]; then
+            if [ "$HOUR" -ge "18" ] || [ "$HOUR" -le "1" ]; then
               echo "post_type=morning" >> $GITHUB_OUTPUT
             else
               echo "post_type=evening" >> $GITHUB_OUTPUT
