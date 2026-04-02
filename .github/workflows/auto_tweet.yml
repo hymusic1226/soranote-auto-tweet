@@ -14,40 +14,42 @@ on:
         default: 'morning'
 
 jobs:
-  tweet:
+  morning:
     runs-on: ubuntu-latest
-
+    if: |
+      (github.event_name == 'schedule' && startsWith(github.event.schedule, '0 22')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.post_type == 'morning')
     steps:
       - uses: actions/checkout@v4
-
-      - name: Python セットアップ
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: 依存関係インストール
-        run: pip install tweepy google-genai python-dotenv
-
-      - name: 投稿タイプを判定
-        id: determine_type
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "post_type=${{ github.event.inputs.post_type }}" >> $GITHUB_OUTPUT
-          else
-            # cronの遅延を考慮しUTC時間帯で判定（18〜23時台 → 朝、それ以外 → 夜）
-            HOUR=$(date -u +%H)
-            if [ "$HOUR" -ge "18" ] || [ "$HOUR" -le "1" ]; then
-              echo "post_type=morning" >> $GITHUB_OUTPUT
-            else
-              echo "post_type=evening" >> $GITHUB_OUTPUT
-            fi
-          fi
-
-      - name: X に投稿
+      - run: pip install tweepy google-genai python-dotenv
+      - name: 朝の投稿
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: python post_tweet.py ${{ steps.determine_type.outputs.post_type }}
+        run: python post_tweet.py morning
+
+  evening:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'schedule' && startsWith(github.event.schedule, '0 12')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.post_type == 'evening')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tweepy google-genai python-dotenv
+      - name: 夜の投稿
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python post_tweet.py evening
