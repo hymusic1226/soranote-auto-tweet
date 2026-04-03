@@ -21,7 +21,7 @@ X_ACCESS_TOKEN        = os.environ.get("X_ACCESS_TOKEN", "")
 X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET", "")
 GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 
-ACCOUNT_URL = "https://x.com/progress_sheet"
+ACCOUNT_URL = "https://note.com/soranote_works"
 
 WEEKDAYS_JP = ["月", "火", "水", "木", "金", "土", "日"]
 today = datetime.now()
@@ -59,7 +59,7 @@ def generate_morning_post() -> str:
         contents=prompt
     )
     text = resp.text.strip()
-    return text
+    return f"{text}\n{ACCOUNT_URL}"
 
 
 def generate_evening_post() -> str:
@@ -92,7 +92,7 @@ def generate_evening_post() -> str:
         contents=prompt
     )
     text = resp.text.strip()
-    return text
+    return f"{text}\n{ACCOUNT_URL}"
 
 
 def post_tweet(text: str) -> None:
