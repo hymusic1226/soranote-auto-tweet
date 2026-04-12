@@ -22,18 +22,69 @@ X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET", "")
 GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 
 ACCOUNT_URL = "https://note.com/soranote_works"
+BOOTH_URL   = "https://soranote.booth.pm/"  # ← BOOTHショップURLに変更してください
 
 WEEKDAYS_JP = ["月", "火", "水", "木", "金", "土", "日"]
-today = datetime.now()
+today   = datetime.now()
 weekday = WEEKDAYS_JP[today.weekday()]
 date_str = today.strftime(f"%-m月%-d日（{weekday}）")
 
+# 曜日ごとのテーマローテーション（0=月〜6=日）
+MORNING_THEMES = [
+    "台本の書き出し・導入部分のコツ",           # 月
+    "キャラクターの感情表現・セリフ設計",         # 火
+    "BOOTH導線（水曜は special_booth で上書き）", # 水（※使用されない）
+    "配信ネタ切れ対策・企画の作り方",             # 木
+    "収録環境・宅録のちょっとしたコツ",           # 金
+    "週末の活動振り返り・来週への準備",           # 土
+    "モチベーション維持・個人活動の続け方",       # 日
+]
+
+EVENING_THEMES = [
+    "今日の収録・配信お疲れ様＋セリフ演技のTips",  # 月
+    "台本準備の効率化・時短テクニック",             # 火
+    "共感ねぎらい＋明日の配信への期待感",           # 水
+    "ストーリー構成・起承転結のワンポイント",       # 木
+    "週末に向けた活動の整理・やりたいことリスト",   # 金
+    "土曜夜の癒やし＋来週への充電メッセージ",       # 土
+    "週末の締め＋月曜への小さな目標設定",           # 日
+]
+
 
 def generate_morning_post() -> str:
-    """朝のVTuber・宅録声優向けTipsツイートを生成する"""
+    """朝のVTuber・宅録声優向けTipsツイートを生成する（水曜はBOOTH導線）"""
     client = google_genai.Client(api_key=GEMINI_API_KEY)
-    prompt = f"""あなたは「台本工房ソラノテ」のSNS担当です。
+
+    # 水曜日（weekday index=2）はBOOTH導線投稿
+    if today.weekday() == 2:
+        prompt = f"""あなたは「台本工房ソラノテ」のSNS担当です。
+今日（{date_str}）の朝、個人VTuberや宅録声優に向けて、BOOTHで販売中のボイス台本・シチュエーションボイス素材を自然に紹介するツイートを作成してください。
+
+必ず以下の形式・改行で出力してください（空行も含めて厳守）：
+
+おはようございます！[朝の絵文字]
+[商品の魅力を伝えるキャッチコピー1行][絵文字]
+
+[台本素材を探しているVTuber・声優の悩みに寄り添いながら、ソラノテの台本がどう役立つかを2〜3行で自然に紹介]
+
+🛒台本素材はこちら→
+
+#個人Vtuber #宅録声優 #ボイス台本
+
+条件：
+- 「台本を自分で用意するのが大変」「ネタが尽きた」という悩みに共感してから商品を紹介する
+- 宣伝臭を抑えて「こんな素材ありますよ」という提案トーンにする
+- 本文合計130文字以内
+- 絵文字は朝らしいもの（☀️🎙️✨📝など）を2〜3個
+
+ツイート本文のみ出力してください（URLは含めない、前置き・説明不要）。"""
+        url = BOOTH_URL
+    else:
+        theme = MORNING_THEMES[today.weekday()]
+        prompt = f"""あなたは「台本工房ソラノテ」のSNS担当です。
 今日（{date_str}）の朝、個人VTuberや宅録声優に向けた実践的なTipsをXに投稿するツイートを作成してください。
+
+今日のテーマ：「{theme}」
 
 必ず以下の形式・改行で出力してください（空行も含めて厳守）：
 
@@ -54,19 +105,24 @@ def generate_morning_post() -> str:
 - 宣伝色を出さず、まず共感・有益情報を優先する
 
 ツイート本文のみ出力してください（URLは含めない、前置き・説明不要）。"""
+        url = ACCOUNT_URL
+
     resp = client.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=prompt
     )
     text = resp.text.strip()
-    return f"{text}\n{ACCOUNT_URL}"
+    return f"{text}\n{url}"
 
 
 def generate_evening_post() -> str:
     """夜のVTuber・宅録声優向け振り返りツイートを生成する"""
     client = google_genai.Client(api_key=GEMINI_API_KEY)
+    theme = EVENING_THEMES[today.weekday()]
     prompt = f"""あなたは「台本工房ソラノテ」のSNS担当です。
 今日（{date_str}）の夜、個人VTuberや宅録声優に向けた夜の振り返り・明日の活動への意欲を高めるツイートを作成してください。
+
+今日のテーマ：「{theme}」
 
 必ず以下の形式・改行で出力してください（空行も含めて厳守）：
 
@@ -114,11 +170,14 @@ def main():
         print("❌ 環境変数が不足しています")
         sys.exit(1)
 
+    is_booth_day = (today.weekday() == 2 and post_type == "morning")
+
     if post_type == "morning":
-        print(f"🌅 朝の投稿 - {date_str}")
+        label = "🛒 水曜BOOTH導線投稿" if is_booth_day else f"🌅 朝の投稿（テーマ：{MORNING_THEMES[today.weekday()]}）"
+        print(f"{label} - {date_str}")
         text = generate_morning_post()
     elif post_type == "evening":
-        print(f"🌙 夜の投稿 - {date_str}")
+        print(f"🌙 夜の投稿（テーマ：{EVENING_THEMES[today.weekday()]}） - {date_str}")
         text = generate_evening_post()
     else:
         print(f"❌ 不明な投稿タイプ: {post_type} (morning / evening を指定)")
