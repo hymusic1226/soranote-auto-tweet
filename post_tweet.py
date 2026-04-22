@@ -24,7 +24,7 @@ X_ACCESS_TOKEN_SECRET = os.environ.get("X_ACCESS_TOKEN_SECRET", "")
 GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 
 ACCOUNT_URL = "https://note.com/soranote_works"
-BOOTH_URL   = "https://soranote.booth.pm/"
+BOOTH_URL   = "https://progress-sheet.booth.pm/"
 
 WEEKDAYS_JP = ["月", "火", "水", "木", "金", "土", "日"]
 today   = datetime.now()
