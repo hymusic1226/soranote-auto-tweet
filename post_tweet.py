@@ -138,7 +138,7 @@ def build_tips_prompt(theme: str, time_of_day: str) -> str:
 - 「おはようございます」「おつかれさまでした」等の挨拶は禁止（bot扱いされる）
 - 「〜しましょう」「〜意識しよう」「〜大切です」等の抽象励まし禁止
 - 絵文字は最大1つ、0でも可
-- ハッシュタグは末尾に最大2個（#個人Vtuber #宅録声優 から選ぶ）
+- ハッシュタグは絶対に書かない（コード側で自動付与する）
 - 全角130文字以内（URLは別カウント）。130文字を超えたら必ず削る。
 - **や__などのMarkdown記法は絶対に使わない（Xでは装飾されず記号のまま表示される）
 - 〇〇・△△・XXなどのプレースホルダーを使わず、必ず具体的な内容で書く
@@ -161,7 +161,7 @@ def build_booth_prompt() -> str:
 1行目：今日扱う"型"や"場面"をはっきり提示（読者が何の話か一瞬で分かる導入）
 2〜3行目：実際に使える具体的な台本のセリフを「」付きで1つ提示
 空行
-末尾2行：「こういうのが15本入ってる商品、BOOTHで980円です」のような控えめな紹介
+末尾2行：「こういうのが15本入ってる商品、BOOTHで680円です」のような控えめな紹介
 
 例：
 個人VTuber初配信の第一声、
@@ -169,7 +169,7 @@ def build_booth_prompt() -> str:
 これ1行で視聴者の滞在時間が変わる。
 
 こういう"ひっかけ型"の冒頭台本を15本、
-BOOTHで980円で置いてます。
+BOOTHで680円で置いてます。
 
 【セリフの質・絶対守る】
 - ✅ 良い例：裏切り・自虐・メタ発言・数字入りの具体
@@ -191,50 +191,85 @@ BOOTHで980円で置いてます。
 - 冒頭で何の話か明示（「このセリフ」のような指示語で始めない）
 - 必ず実セリフを「」付きで1つ以上入れる
 - 絵文字は最大1つ
-- ハッシュタグは末尾に #個人Vtuber #宅録声優 のみ
+- ハッシュタグは絶対に書かない（コード側で自動付与する）
 - 全角130文字以内
-- 価格は必ず「980円」と書く
+- 価格は必ず「680円」と書く
 
 ツイート本文のみ出力。URL不要。"""
 
 
-def sanitize(text: str) -> str:
-    """Markdown記法除去・文字数トリム"""
+# ── ハッシュタグ候補プール（時間帯・テーマで使い分け） ──
+HASHTAG_POOLS = {
+    "default":  ["#個人Vtuber", "#宅録声優"],
+    "booth":    ["#個人Vtuber", "#ASMR"],
+    "asmr":     ["#ASMR", "#個人Vtuber"],
+    "broad":    ["#VTuber", "#個人Vtuber"],
+}
+
+
+def sanitize(text: str, pattern_key: str = "") -> str:
+    """Markdown記法除去・既存ハッシュタグ剥がし・文字数トリム・タグ強制付与"""
     import re
-    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)   # **bold** → bold
-    text = re.sub(r'__(.+?)__', r'\1', text)         # __bold__ → bold
-    text = re.sub(r'\*(.+?)\*', r'\1', text)         # *italic* → italic
-    # ハッシュタグ・URLより前の本文を130字以内にトリム
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = re.sub(r'__(.+?)__', r'\1', text)
+    text = re.sub(r'\*(.+?)\*', r'\1', text)
+
+    # AIが本文中に紛れ込ませたハッシュタグを一旦全削除（行頭・行中問わず）
+    # AIの出力は信頼せず、コード側で確実に末尾付与する
+    text = re.sub(r'#\S+', '', text)
+    text = re.sub(r'[ \t]+\n', '\n', text)            # 行末空白除去
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()    # 連続改行整理
+
+    # URL行を末尾に分離
     lines = text.split('\n')
-    body_lines, tail_lines = [], []
-    in_tail = False
+    body_lines, url_lines = [], []
     for line in lines:
-        if not in_tail and (line.startswith('#') or line.startswith('http')):
-            in_tail = True
-        (tail_lines if in_tail else body_lines).append(line)
-    body = '\n'.join(body_lines)
+        if line.strip().startswith('http'):
+            url_lines.append(line.strip())
+        else:
+            body_lines.append(line)
+    body = '\n'.join(body_lines).strip()
+
+    # 本文130字以内にトリム
     if len(body) > 130:
         body = body[:127] + '…'
-    return '\n'.join([body] + tail_lines).strip()
+
+    # ハッシュタグ強制付与（プールから選択）
+    pool = HASHTAG_POOLS.get(pattern_key, HASHTAG_POOLS["default"])
+    # BOOTH商品でASMR推しなので、ランダムで広めのタグも混ぜる
+    if pattern_key == "booth":
+        tags = pool
+    elif random.random() < 0.3:
+        tags = HASHTAG_POOLS["broad"]   # 30%で広めのタグ
+    else:
+        tags = pool
+
+    tag_line = " ".join(tags)
+
+    parts = [body]
+    if url_lines:
+        parts.extend(url_lines)
+    parts.append(tag_line)
+    return "\n\n".join(parts)
 
 
-def generate_text(prompt: str) -> str:
+def generate_text(prompt: str, pattern_key: str = "") -> str:
     client = google_genai.Client(api_key=GEMINI_API_KEY)
     resp = client.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=prompt
     )
-    return sanitize(resp.text.strip())
+    return sanitize(resp.text.strip(), pattern_key)
 
 
 def generate_morning_post() -> tuple[str, str]:
     if today.weekday() == 2:
-        text = generate_text(build_booth_prompt())
+        text = generate_text(build_booth_prompt(), "booth")
         return text, BOOTH_URL, "booth"
 
     theme = MORNING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "morning")
-    text = generate_text(prompt)
+    text = generate_text(prompt, pattern_key)
     url = ACCOUNT_URL if random.random() < 0.5 else ""
     return text, url, pattern_key
 
@@ -242,7 +277,7 @@ def generate_morning_post() -> tuple[str, str]:
 def generate_evening_post() -> tuple[str, str]:
     theme = EVENING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "evening")
-    text = generate_text(prompt)
+    text = generate_text(prompt, pattern_key)
     url = ACCOUNT_URL if random.random() < 0.5 else ""
     return text, url, pattern_key
 
