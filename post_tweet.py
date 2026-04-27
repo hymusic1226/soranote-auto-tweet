@@ -3,9 +3,12 @@
 朝・夜の台本/脚本関連コンテンツをGemini AIで生成してXに投稿する
 
 使用方法:
-  python post_tweet.py morning            # 朝の投稿
-  python post_tweet.py evening            # 夜の投稿
-  python post_tweet.py morning --dry-run  # 投稿せず生成内容のみ表示
+  python post_tweet.py morning                   # 朝の投稿（AI生成）
+  python post_tweet.py evening                   # 夜の投稿（AI生成）
+  python post_tweet.py morning --dry-run         # 投稿せず生成内容のみ表示
+  python post_tweet.py custom --text "..."       # 指定テキストをそのまま投稿
+  python post_tweet.py custom --file path.txt    # ファイルから読み込んで投稿
+  python post_tweet.py custom --text "..." --dry-run  # 確認だけ
 """
 import os
 import sys
@@ -297,6 +300,54 @@ def main():
     post_type = sys.argv[1] if len(sys.argv) > 1 else "morning"
     dry_run = "--dry-run" in sys.argv
 
+    # custom モード: AIを使わず指定テキストをそのまま投稿
+    # 使い方:
+    #   python post_tweet.py custom --text "告知文..."
+    #   python post_tweet.py custom --file path/to/text.txt
+    #   python post_tweet.py custom --text "..." --dry-run
+    if post_type == "custom":
+        custom_text = ""
+        if "--text" in sys.argv:
+            idx = sys.argv.index("--text")
+            if idx + 1 < len(sys.argv):
+                custom_text = sys.argv[idx + 1]
+        elif "--file" in sys.argv:
+            idx = sys.argv.index("--file")
+            if idx + 1 < len(sys.argv):
+                with open(sys.argv[idx + 1], encoding="utf-8") as f:
+                    custom_text = f.read().strip()
+
+        if not custom_text:
+            print("❌ --text \"内容\" または --file path を指定してください")
+            sys.exit(1)
+
+        if not dry_run and not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
+            print("❌ X API 環境変数が不足しています")
+            sys.exit(1)
+
+        # X 280字制限チェック（URLは t.co短縮で23字扱い）
+        # 簡易計算: 全角=2字, 半角=1字, URL=23字固定
+        import re as _re
+        urls = _re.findall(r'https?://\S+', custom_text)
+        text_no_url = _re.sub(r'https?://\S+', '', custom_text)
+        char_count = sum(2 if ord(c) > 127 else 1 for c in text_no_url) // 2 + len(urls) * 23
+        # X実際は文字数ベース（半角280/全角140）。簡易表示のみ。
+        display_len = len(custom_text)
+
+        print(f"──────────────────────────────")
+        print(f"📅 {date_str} / custom")
+        print(f"📝 文字数: {display_len}")
+        print(f"──────────────────────────────")
+        print(custom_text)
+        print(f"──────────────────────────────")
+
+        if dry_run:
+            print("🧪 dry-run モード：投稿はスキップしました")
+            return
+
+        post_tweet(custom_text)
+        return
+
     required_keys = [GEMINI_API_KEY]
     if not dry_run:
         required_keys += [X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]
@@ -309,7 +360,7 @@ def main():
     elif post_type == "evening":
         text, url, pattern = generate_evening_post()
     else:
-        print(f"❌ 不明な投稿タイプ: {post_type} (morning / evening を指定)")
+        print(f"❌ 不明な投稿タイプ: {post_type} (morning / evening / custom を指定)")
         sys.exit(1)
 
     final_text = f"{text}\n{url}" if url else text
