@@ -9,9 +9,17 @@ on:
   workflow_dispatch:
     inputs:
       post_type:
-        description: '投稿タイプ (morning / evening)'
+        description: '投稿タイプ (morning / evening / custom_pin / custom_1 / custom_2 / custom_3)'
         required: true
         default: 'morning'
+        type: choice
+        options:
+          - morning
+          - evening
+          - custom_pin
+          - custom_1
+          - custom_2
+          - custom_3
 
 jobs:
   morning:
@@ -53,3 +61,33 @@ jobs:
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python post_tweet.py evening
+
+  custom:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      startsWith(github.event.inputs.post_type, 'custom_')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tweepy google-genai python-dotenv
+      - name: カスタム投稿（指定ファイル）
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          POST_TYPE: ${{ github.event.inputs.post_type }}
+        run: |
+          case "$POST_TYPE" in
+            custom_pin) FILE=announce_pin.txt ;;
+            custom_1)   FILE=announce_1_serif.txt ;;
+            custom_2)   FILE=announce_2_mistakes.txt ;;
+            custom_3)   FILE=announce_3_fieldstory.txt ;;
+            *) echo "unknown post_type: $POST_TYPE"; exit 1 ;;
+          esac
+          echo "投稿ファイル: $FILE"
+          python post_tweet.py custom --file "$FILE"
