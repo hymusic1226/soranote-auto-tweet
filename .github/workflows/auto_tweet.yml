@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       post_type:
-        description: '投稿タイプ (morning / evening / custom_pin / custom_1 / custom_2 / custom_3)'
+        description: '投稿タイプ'
         required: true
         default: 'morning'
         type: choice
@@ -17,9 +17,13 @@ on:
           - morning
           - evening
           - custom_pin
+          - custom_pin_v2
+          - custom_pin_asmr
           - custom_1
           - custom_2
           - custom_3
+          - custom_asmr_b
+          - custom_asmr_c
 
 jobs:
   morning:
@@ -83,10 +87,14 @@ jobs:
           POST_TYPE: ${{ github.event.inputs.post_type }}
         run: |
           case "$POST_TYPE" in
-            custom_pin) FILE=announce_pin.txt ;;
-            custom_1)   FILE=announce_1_serif.txt ;;
-            custom_2)   FILE=announce_2_mistakes.txt ;;
-            custom_3)   FILE=announce_3_fieldstory.txt ;;
+            custom_pin)      FILE=announce_pin.txt ;;
+            custom_pin_v2)   FILE=announce_pin_v2.txt ;;
+            custom_pin_asmr) FILE=announce_pin_asmr.txt ;;
+            custom_1)        FILE=announce_1_serif.txt ;;
+            custom_2)        FILE=announce_2_mistakes.txt ;;
+            custom_3)        FILE=announce_3_fieldstory.txt ;;
+            custom_asmr_b)   FILE=announce_asmr_b.txt ;;
+            custom_asmr_c)   FILE=announce_asmr_c.txt ;;
             *) echo "unknown post_type: $POST_TYPE"; exit 1 ;;
           esac
           echo "投稿ファイル: $FILE"
