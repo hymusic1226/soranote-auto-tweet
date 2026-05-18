@@ -1,6 +1,5 @@
 """
 台本工房ソラノテ - X自動投稿スクリプト
-朝・夜の台本/脚本関連コンテンツをGemini AIで生成してXに投稿する
 
 使用方法:
   python post_tweet.py morning                   # 朝の投稿（AI生成）
@@ -9,6 +8,10 @@
   python post_tweet.py custom --text "..."       # 指定テキストをそのまま投稿
   python post_tweet.py custom --file path.txt    # ファイルから読み込んで投稿
   python post_tweet.py custom --text "..." --dry-run  # 確認だけ
+
+投稿スケジュール:
+  水曜朝・土曜夜 → announce_*.txt ローテ（BOOTH商品訴求）
+  その他         → AI生成Tips（VTuber/ASMR/宅録向け）
 """
 import os
 import sys
@@ -34,97 +37,132 @@ today   = datetime.now()
 weekday = WEEKDAYS_JP[today.weekday()]
 date_str = today.strftime(f"%-m月%-d日（{weekday}）")
 
+# ── announce ファイルローテ（4日サイクル）──
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ANNOUNCE_FILES = [
+    os.path.join(SCRIPT_DIR, "announce_pin.txt"),
+    os.path.join(SCRIPT_DIR, "announce_1_serif.txt"),
+    os.path.join(SCRIPT_DIR, "announce_2_mistakes.txt"),
+    os.path.join(SCRIPT_DIR, "announce_3_fieldstory.txt"),
+]
+
+def load_announce() -> str:
+    """day_of_year % 4 で announce ファイルをローテ選択"""
+    idx = today.timetuple().tm_yday % len(ANNOUNCE_FILES)
+    path = ANNOUNCE_FILES[idx]
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    return ""
+
+# ── 曜日別テーマ ──
 MORNING_THEMES = [
-    "台本の書き出し・導入",
-    "キャラのセリフ設計・感情表現",
-    "BOOTH導線（水曜）",
-    "配信ネタ・企画の作り方",
-    "宅録・収録Tips",
-    "週末の振り返り・翌週準備",
-    "個人活動のモチベ維持",
+    "ASMR台本の書き出し・冒頭セリフ設計",       # 月
+    "キャラのセリフ設計・感情表現",               # 火
+    "BOOTH導線（水曜・announce）",                # 水（※使用されない）
+    "配信ネタ切れ対策・ASMR企画の作り方",         # 木
+    "宅録・マイク収録のASMR向けTips",             # 金
+    "週末活動の振り返り・来週の台本準備",          # 土
+    "個人活動のモチベ維持・継続のコツ",            # 日
 ]
 
 EVENING_THEMES = [
-    "セリフ演技・発声",
-    "台本準備の時短術",
-    "配信企画のブラッシュアップ",
-    "ストーリー構成・起承転結",
-    "活動整理・やりたいことリスト",
-    "週末の充電・次の一歩",
-    "月曜に向けた小さな目標",
+    "ASMR収録後の疲れ・次に活かすワンポイント",   # 月
+    "台本準備の時短術・テンプレ活用",              # 火
+    "配信企画ブラッシュアップ・差別化",            # 水
+    "ストーリー構成・起承転結のASMR応用",          # 木
+    "活動整理・やりたいことリスト",                # 金
+    "BOOTH導線（土曜夜・announce）",               # 土（※使用されない）
+    "月曜に向けた小さな目標設定",                  # 日
 ]
 
-# ── 投稿パターン（AI臭を消すための型） ──
+# ── 投稿パターン ──
 PATTERNS = {
     "counter_intuitive": """【型：反常識型】
 1行目：多くの人がやってる行動を指摘し「〜してる人、実は損してます」で止める
 空行1つ
 2〜3行：なぜダメか、代わりに何をすべきかを具体的に
-締め：制作進行経験に基づく一言
+締め：制作進行経験に基づく一言（ASMR・台本・宅録に絡める）
 
 例：
-個人VTuberの初配信、
-「初めまして！」から入ってる人、損してます。
+個人VTuberのASMR配信、
+冒頭でBGMを流し始める人、実は損してます。
 
-視聴者は自己紹介に興味がない。
-「この配信で何が起きるか」に興味がある。
-
-冒頭1文を"予告"に変えるだけで離脱率が変わる。""",
+最初の5秒は無音の方が「え、始まった？」と視聴者が止まる。
+BGMは15秒後から-20dBでフェードイン。""",
 
     "field_story": """【型：現場話型】
-1行目：「制作進行で〇〇現場を見てきたけど、」のような一次情報の導入
-2〜3行：具体的に見てきた事実・パターン
-締め：個人活動者への応用ヒント
+1行目：「制作進行でASMR/声優/配信現場を見てきたけど、」のような一次情報の導入
+2〜3行：具体的に見てきた事実・パターン（ASMR台本・宅録に関すること）
+締め：個人VTuber・宅録声優への応用ヒント
 
-固有名詞（番組タイプ・役割）を混ぜて現場感を出す。""",
+固有名詞（番組タイプ・役割・機材名）を混ぜて現場感を出す。""",
 
     "specific_line": """【型：セリフ例示型】
-必ずセリフを「」付きで2つ以上入れる（NGとOKの対比）。
+必ずASMR・配信・台本に関するセリフを「」付きで2つ以上入れる（NGとOKの対比）。
 説明は最小限、セリフそのもので語らせる。
 
 例：
 「今日もよろしくお願いします」
 より
-「昨日の配信、実は1回撮り直してます」
-の方が残る。
+「今日は耳かき、10分くらいで眠らせます」
+の方が視聴者は止まる。
 
-視聴者が手を止めるのは"情報"じゃなく"気配"。""",
+冒頭の一言で視聴継続率が変わる。""",
 
     "number_fact": """【型：数字ファクト型】
-数字を最低2つ入れる（年数・割合・秒数など）。
+数字を最低2つ入れる（秒数・dB・文字数・割合など。ASMR・宅録に関する数字だと説得力が増す）。
 数字→理由→アクションの順で構成。
 
-例：配信冒頭30秒で離脱される人は、9割が自己紹介から入ってる。""",
+例：ASMR配信の冒頭30秒で離脱する人は、8割が声量が大きすぎる配信者から逃げてる。""",
 
     "mistake_list": """【型：失敗列挙型】
-「〜でNGな3つ」形式。
+「〜でNGな3つ」形式。ASMR・台本・宅録に特化した内容にする。
 各項目1行、改行で区切り、理由は書かない（読者に考えさせる）。
 
 例：
-配信台本で詰む3大ミス
+ASMR台本で詰む3大ミス
 
-・結論が最後に来る
-・「えー」を台本に書く
-・尺の指定がない
+・冒頭の声量指定がない
+・BGMのdB数を書いていない
+・息継ぎのタイミングが「てきとうに」
 
 全部直すと収録時間が半分になる。""",
+
+    "asmr_hook": """【型：ASMR特化フック型】
+ASMR配信・宅録声優が「わかる！」となる超具体的な場面を1つ切り取る。
+台本のセリフサンプル or 収録中に起きる具体的な問題を1つ入れる。
+締めは「こういう台本/コツ、需要ある？」「明日試せる」などの引きで終わる。
+
+例：
+寝かしつけASMRの台本、
+「10……9……」の数え方で視聴者の眠気が変わる。
+
+「10……9……ゆっくり、息を吐いて……8……」
+これだけで平均視聴時間が伸びる。""",
+}
+
+# ── ハッシュタグプール ──
+HASHTAG_POOLS = {
+    "default":          ["#個人Vtuber", "#宅録声優"],
+    "asmr_hook":        ["#ASMR", "#個人Vtuber"],
+    "booth":            ["#個人Vtuber", "#宅録声優"],
+    "broad":            ["#VTuber", "#個人Vtuber"],
+    "asmr_broad":       ["#ASMR配信", "#個人Vtuber"],
 }
 
 
-def build_tips_prompt(theme: str, time_of_day: str) -> str:
-    """AI臭のないTips投稿プロンプトを生成（パターンランダム選択）"""
+def build_tips_prompt(theme: str, time_of_day: str) -> tuple[str, str]:
+    """Tips投稿プロンプトを生成（パターンランダム選択）"""
     pattern_key = random.choice(list(PATTERNS.keys()))
     pattern_guide = PATTERNS[pattern_key]
-    include_url = random.random() < 0.5
 
     tod_rules = ""
     if time_of_day == "evening":
         tod_rules = "- 夜の投稿なので、振り返りや「明日試せる具体ネタ」寄りのトーンに"
 
-    url_note = "最後にURLを1行で入れる（記事導線のため）" if include_url else "URLは一切入れない（拡散狙い）"
-
     return (pattern_key, f"""あなたは制作進行の経験を持つ「台本工房ソラノテ」の中の人。
-個人VTuber・宅録声優向けにX投稿を作ります。
+個人VTuber・宅録声優・ASMR配信者向けにX投稿を作ります。
 
 テーマ：「{theme}」
 日付：{date_str}
@@ -132,8 +170,8 @@ def build_tips_prompt(theme: str, time_of_day: str) -> str:
 {pattern_guide}
 
 【セリフを入れるときの質・絶対守る】
-- ✅ 裏切り・自虐・メタ・数字入り具体
-  例:「今から30分、私が失敗します」「昨日の配信、1回撮り直してます」
+- ✅ 裏切り・自虐・メタ・数字入り具体・ASMR特有の表現
+  例:「BGMは-20dBから始めます」「息継ぎをマイクに入れるタイミング、台本に書いてない」
 - ❌ ポエム・クリシェ・情熱系で締める感動セリフ
   例:「一緒に素敵な時間を」「心に火をつけたい」「〜したいんです！」
 
@@ -143,7 +181,7 @@ def build_tips_prompt(theme: str, time_of_day: str) -> str:
 - 絵文字は最大1つ、0でも可
 - ハッシュタグは絶対に書かない（コード側で自動付与する）
 - 全角130文字以内（URLは別カウント）。130文字を超えたら必ず削る。
-- **や__などのMarkdown記法は絶対に使わない（Xでは装飾されず記号のまま表示される）
+- **や__などのMarkdown記法は絶対に使わない
 - 〇〇・△△・XXなどのプレースホルダーを使わず、必ず具体的な内容で書く
 - 必ず指示された型に従う
 - 具体例・数字・実セリフのいずれかを最低1つ含む
@@ -153,77 +191,16 @@ def build_tips_prompt(theme: str, time_of_day: str) -> str:
 ツイート本文のみ。前置き・説明・URL・補足解説は一切不要。""")
 
 
-def build_booth_prompt() -> str:
-    """水曜BOOTH導線プロンプト（告知型ではなくコンテンツ型）"""
-    return f"""あなたは「台本工房ソラノテ」の中の人。
-水曜朝、BOOTHの商品へ誘導する投稿を書きます。
-
-【重要】告知型にしないこと。
-以下の型で書く：
-
-1行目：今日扱う"型"や"場面"をはっきり提示（読者が何の話か一瞬で分かる導入）
-2〜3行目：実際に使える具体的な台本のセリフを「」付きで1つ提示
-空行
-末尾2行：「こういうのが15本入ってる商品、BOOTHで680円です」のような控えめな紹介
-
-例：
-個人VTuber初配信の第一声、
-「この30分で、私のこと嫌いになってもらえたら勝ちです」
-これ1行で視聴者の滞在時間が変わる。
-
-こういう"ひっかけ型"の冒頭台本を15本、
-BOOTHで680円で置いてます。
-
-【セリフの質・絶対守る】
-- ✅ 良い例：裏切り・自虐・メタ発言・数字入りの具体
-  「今から30分、私が失敗します」
-  「昨日の配信、実は1回撮り直してます」
-  「この配信、たぶん途中で脱線します」
-  「90秒で自己紹介終わらせるので聞いてください」
-- ❌ 悪い例：ポエム・感動系クリシェ・アニメのキャッチコピー
-  「世界にはまだ知らない面白いことが…」
-  「一緒に素敵な時間を…」
-  「〜したいんです！」で終わる情熱系
-  あなたの心に火をつける 等の抽象表現
-
-セリフは必ず「上手い人なら言いそうだけど、素人は思いつかない」
-意外性・自虐・メタ構造のあるものを選ぶ。
-
-【絶対ルール】
-- 「おはようございます」等の挨拶禁止
-- 冒頭で何の話か明示（「このセリフ」のような指示語で始めない）
-- 必ず実セリフを「」付きで1つ以上入れる
-- 絵文字は最大1つ
-- ハッシュタグは絶対に書かない（コード側で自動付与する）
-- 全角130文字以内
-- 価格は必ず「680円」と書く
-
-ツイート本文のみ出力。URL不要。"""
-
-
-# ── ハッシュタグ候補プール（時間帯・テーマで使い分け） ──
-HASHTAG_POOLS = {
-    "default":  ["#個人Vtuber", "#宅録声優"],
-    "booth":    ["#個人Vtuber", "#ASMR"],
-    "asmr":     ["#ASMR", "#個人Vtuber"],
-    "broad":    ["#VTuber", "#個人Vtuber"],
-}
-
-
 def sanitize(text: str, pattern_key: str = "") -> str:
-    """Markdown記法除去・既存ハッシュタグ剥がし・文字数トリム・タグ強制付与"""
+    """Markdown除去・ハッシュタグ剥がし・文字数トリム・タグ強制付与"""
     import re
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     text = re.sub(r'__(.+?)__', r'\1', text)
     text = re.sub(r'\*(.+?)\*', r'\1', text)
-
-    # AIが本文中に紛れ込ませたハッシュタグを一旦全削除（行頭・行中問わず）
-    # AIの出力は信頼せず、コード側で確実に末尾付与する
     text = re.sub(r'#\S+', '', text)
-    text = re.sub(r'[ \t]+\n', '\n', text)            # 行末空白除去
-    text = re.sub(r'\n{3,}', '\n\n', text).strip()    # 連続改行整理
+    text = re.sub(r'[ \t]+\n', '\n', text)
+    text = re.sub(r'\n{3,}', '\n\n', text).strip()
 
-    # URL行を末尾に分離
     lines = text.split('\n')
     body_lines, url_lines = [], []
     for line in lines:
@@ -233,26 +210,23 @@ def sanitize(text: str, pattern_key: str = "") -> str:
             body_lines.append(line)
     body = '\n'.join(body_lines).strip()
 
-    # 本文130字以内にトリム
     if len(body) > 130:
         body = body[:127] + '…'
 
-    # ハッシュタグ強制付与（プールから選択）
-    pool = HASHTAG_POOLS.get(pattern_key, HASHTAG_POOLS["default"])
-    # BOOTH商品でASMR推しなので、ランダムで広めのタグも混ぜる
-    if pattern_key == "booth":
-        tags = pool
+    # ハッシュタグ選択
+    if pattern_key == "asmr_hook":
+        tags = HASHTAG_POOLS["asmr_hook"]
+    elif pattern_key in HASHTAG_POOLS:
+        tags = HASHTAG_POOLS[pattern_key]
+    elif random.random() < 0.2:
+        tags = HASHTAG_POOLS["asmr_broad"]  # 20%でASMR広めタグ
     elif random.random() < 0.3:
-        tags = HASHTAG_POOLS["broad"]   # 30%で広めのタグ
+        tags = HASHTAG_POOLS["broad"]
     else:
-        tags = pool
+        tags = HASHTAG_POOLS["default"]
 
     tag_line = " ".join(tags)
-
-    parts = [body]
-    if url_lines:
-        parts.extend(url_lines)
-    parts.append(tag_line)
+    parts = [body] + url_lines + [tag_line]
     return "\n\n".join(parts)
 
 
@@ -265,11 +239,13 @@ def generate_text(prompt: str, pattern_key: str = "") -> str:
     return sanitize(resp.text.strip(), pattern_key)
 
 
-def generate_morning_post() -> tuple[str, str]:
+def generate_morning_post() -> tuple[str, str, str]:
+    # 水曜朝 → announce ローテ
     if today.weekday() == 2:
-        text = generate_text(build_booth_prompt(), "booth")
-        return text, BOOTH_URL, "booth"
-
+        text = load_announce()
+        if text:
+            return text, "", "announce"
+        # fallback: AI生成
     theme = MORNING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "morning")
     text = generate_text(prompt, pattern_key)
@@ -277,7 +253,13 @@ def generate_morning_post() -> tuple[str, str]:
     return text, url, pattern_key
 
 
-def generate_evening_post() -> tuple[str, str]:
+def generate_evening_post() -> tuple[str, str, str]:
+    # 土曜夜 → announce ローテ
+    if today.weekday() == 5:
+        text = load_announce()
+        if text:
+            return text, "", "announce"
+        # fallback: AI生成
     theme = EVENING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "evening")
     text = generate_text(prompt, pattern_key)
@@ -300,11 +282,7 @@ def main():
     post_type = sys.argv[1] if len(sys.argv) > 1 else "morning"
     dry_run = "--dry-run" in sys.argv
 
-    # custom モード: AIを使わず指定テキストをそのまま投稿
-    # 使い方:
-    #   python post_tweet.py custom --text "告知文..."
-    #   python post_tweet.py custom --file path/to/text.txt
-    #   python post_tweet.py custom --text "..." --dry-run
+    # custom モード
     if post_type == "custom":
         custom_text = ""
         if "--text" in sys.argv:
@@ -316,35 +294,20 @@ def main():
             if idx + 1 < len(sys.argv):
                 with open(sys.argv[idx + 1], encoding="utf-8") as f:
                     custom_text = f.read().strip()
-
         if not custom_text:
             print("❌ --text \"内容\" または --file path を指定してください")
             sys.exit(1)
-
         if not dry_run and not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET]):
             print("❌ X API 環境変数が不足しています")
             sys.exit(1)
-
-        # X 280字制限チェック（URLは t.co短縮で23字扱い）
-        # 簡易計算: 全角=2字, 半角=1字, URL=23字固定
-        import re as _re
-        urls = _re.findall(r'https?://\S+', custom_text)
-        text_no_url = _re.sub(r'https?://\S+', '', custom_text)
-        char_count = sum(2 if ord(c) > 127 else 1 for c in text_no_url) // 2 + len(urls) * 23
-        # X実際は文字数ベース（半角280/全角140）。簡易表示のみ。
-        display_len = len(custom_text)
-
         print(f"──────────────────────────────")
-        print(f"📅 {date_str} / custom")
-        print(f"📝 文字数: {display_len}")
+        print(f"📅 {date_str} / custom / 文字数: {len(custom_text)}")
         print(f"──────────────────────────────")
         print(custom_text)
         print(f"──────────────────────────────")
-
         if dry_run:
             print("🧪 dry-run モード：投稿はスキップしました")
             return
-
         post_tweet(custom_text)
         return
 
