@@ -201,13 +201,13 @@ def sanitize(text: str, pattern_key: str = "") -> str:
     text = re.sub(r'[ \t]+\n', '\n', text)
     text = re.sub(r'\n{3,}', '\n\n', text).strip()
 
+    # X新アルゴリズム対応：本文内のURLは reach 抑制対象なので強制除去
+    # （AI が誤って URL を生成した場合の保険）
+    text = re.sub(r'https?://\S+', '', text)
     lines = text.split('\n')
     body_lines, url_lines = [], []
     for line in lines:
-        if line.strip().startswith('http'):
-            url_lines.append(line.strip())
-        else:
-            body_lines.append(line)
+        body_lines.append(line)
     body = '\n'.join(body_lines).strip()
 
     if len(body) > 130:
@@ -249,7 +249,8 @@ def generate_morning_post() -> tuple[str, str, str]:
     theme = MORNING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "morning")
     text = generate_text(prompt, pattern_key)
-    url = ACCOUNT_URL if random.random() < 0.5 else ""
+    # X新アルゴリズム対応：本文内URLはreach抑制対象。常に空にする
+    url = ""
     return text, url, pattern_key
 
 
@@ -263,7 +264,8 @@ def generate_evening_post() -> tuple[str, str, str]:
     theme = EVENING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "evening")
     text = generate_text(prompt, pattern_key)
-    url = ACCOUNT_URL if random.random() < 0.5 else ""
+    # X新アルゴリズム対応：本文内URLはreach抑制対象。常に空にする
+    url = ""
     return text, url, pattern_key
 
 
