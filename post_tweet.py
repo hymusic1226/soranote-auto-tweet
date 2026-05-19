@@ -269,14 +269,37 @@ def generate_evening_post() -> tuple[str, str, str]:
     return text, url, pattern_key
 
 
-def post_tweet(text: str) -> None:
+def _find_image_for(file_path: str) -> str:
+    """announce_X.txt → images/announce_X.{jpg,png} を自動探索"""
+    import os
+    base = os.path.splitext(os.path.basename(file_path))[0]
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        candidate = os.path.join(script_dir, "images", base + ext)
+        if os.path.exists(candidate):
+            return candidate
+    return ""
+
+
+def post_tweet(text: str, image_path: str = "") -> None:
     client = tweepy.Client(
         consumer_key=X_API_KEY,
         consumer_secret=X_API_SECRET,
         access_token=X_ACCESS_TOKEN,
         access_token_secret=X_ACCESS_TOKEN_SECRET
     )
-    response = client.create_tweet(text=text)
+    media_ids = None
+    if image_path:
+        # 画像アップロードは v1.1 API 経由
+        auth = tweepy.OAuth1UserHandler(
+            X_API_KEY, X_API_SECRET,
+            X_ACCESS_TOKEN, X_ACCESS_TOKEN_SECRET
+        )
+        api_v1 = tweepy.API(auth)
+        media = api_v1.media_upload(filename=image_path)
+        media_ids = [media.media_id]
+        print(f"🖼️  画像添付: {image_path} (media_id={media.media_id})")
+    response = client.create_tweet(text=text, media_ids=media_ids)
     print(f"✅ 投稿成功: tweet_id={response.data['id']}")
 
 
@@ -287,6 +310,14 @@ def main():
     # custom モード
     if post_type == "custom":
         custom_text = ""
+        image_path = ""
+        # 明示的に --image が指定されたらそれを優先
+        if "--image" in sys.argv:
+            idx = sys.argv.index("--image")
+            if idx + 1 < len(sys.argv):
+                image_path = sys.argv[idx + 1]
+        if "--no-image" in sys.argv:
+            image_path = "__skip__"  # 後で空に戻す
         if "--text" in sys.argv:
             idx = sys.argv.index("--text")
             if idx + 1 < len(sys.argv):
@@ -294,8 +325,14 @@ def main():
         elif "--file" in sys.argv:
             idx = sys.argv.index("--file")
             if idx + 1 < len(sys.argv):
-                with open(sys.argv[idx + 1], encoding="utf-8") as f:
+                file_path = sys.argv[idx + 1]
+                with open(file_path, encoding="utf-8") as f:
                     custom_text = f.read().strip()
+                # 画像未指定なら自動探索
+                if not image_path:
+                    image_path = _find_image_for(file_path)
+        if image_path == "__skip__":
+            image_path = ""
         if not custom_text:
             print("❌ --text \"内容\" または --file path を指定してください")
             sys.exit(1)
@@ -304,13 +341,14 @@ def main():
             sys.exit(1)
         print(f"──────────────────────────────")
         print(f"📅 {date_str} / custom / 文字数: {len(custom_text)}")
+        print(f"🖼️  画像: {image_path if image_path else '(なし)'}")
         print(f"──────────────────────────────")
         print(custom_text)
         print(f"──────────────────────────────")
         if dry_run:
             print("🧪 dry-run モード：投稿はスキップしました")
             return
-        post_tweet(custom_text)
+        post_tweet(custom_text, image_path)
         return
 
     required_keys = [GEMINI_API_KEY]
