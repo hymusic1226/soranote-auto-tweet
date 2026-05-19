@@ -46,14 +46,41 @@ ANNOUNCE_FILES = [
     os.path.join(SCRIPT_DIR, "announce_3_fieldstory.txt"),
 ]
 
-def load_announce() -> str:
-    """day_of_year % 4 で announce ファイルをローテ選択"""
+def load_announce() -> tuple[str, str]:
+    """day_of_year % 4 で announce ファイルをローテ選択し、対応画像も返す"""
     idx = today.timetuple().tm_yday % len(ANNOUNCE_FILES)
     path = ANNOUNCE_FILES[idx]
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
-            return f.read().strip()
-    return ""
+            text = f.read().strip()
+        # 対応画像を自動検出
+        base = os.path.splitext(os.path.basename(path))[0]
+        image_path = ""
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            candidate = os.path.join(SCRIPT_DIR, "images", base + ext)
+            if os.path.exists(candidate):
+                image_path = candidate
+                break
+        return text, image_path
+    return "", ""
+
+
+def pick_random_image(prefix_pool: list = None) -> str:
+    """images/ ディレクトリからランダムに1枚選ぶ。
+    prefix_pool が指定されていればその接頭辞のファイルに限定。"""
+    import glob
+    image_dir = os.path.join(SCRIPT_DIR, "images")
+    if not os.path.isdir(image_dir):
+        return ""
+    candidates = []
+    for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+        candidates.extend(glob.glob(os.path.join(image_dir, ext)))
+    if prefix_pool:
+        candidates = [c for c in candidates
+                      if any(os.path.basename(c).startswith(p) for p in prefix_pool)]
+    if not candidates:
+        return ""
+    return random.choice(candidates)
 
 # ── 曜日別テーマ ──
 MORNING_THEMES = [
@@ -239,34 +266,40 @@ def generate_text(prompt: str, pattern_key: str = "") -> str:
     return sanitize(resp.text.strip(), pattern_key)
 
 
-def generate_morning_post() -> tuple[str, str, str]:
+def generate_morning_post() -> tuple[str, str, str, str]:
     # 水曜朝 → announce ローテ
     if today.weekday() == 2:
-        text = load_announce()
+        text, image_path = load_announce()
         if text:
-            return text, "", "announce"
+            return text, "", "announce", image_path
         # fallback: AI生成
     theme = MORNING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "morning")
     text = generate_text(prompt, pattern_key)
     # X新アルゴリズム対応：本文内URLはreach抑制対象。常に空にする
     url = ""
-    return text, url, pattern_key
+    # ASMR/宅録テーマの画像をランダム選択
+    image_path = pick_random_image(["announce_asmr", "announce_1", "announce_2",
+                                    "announce_3", "announce_pin_asmr"])
+    return text, url, pattern_key, image_path
 
 
-def generate_evening_post() -> tuple[str, str, str]:
+def generate_evening_post() -> tuple[str, str, str, str]:
     # 土曜夜 → announce ローテ
     if today.weekday() == 5:
-        text = load_announce()
+        text, image_path = load_announce()
         if text:
-            return text, "", "announce"
+            return text, "", "announce", image_path
         # fallback: AI生成
     theme = EVENING_THEMES[today.weekday()]
     pattern_key, prompt = build_tips_prompt(theme, "evening")
     text = generate_text(prompt, pattern_key)
     # X新アルゴリズム対応：本文内URLはreach抑制対象。常に空にする
     url = ""
-    return text, url, pattern_key
+    # ASMR/宅録テーマの画像をランダム選択
+    image_path = pick_random_image(["announce_asmr", "announce_1", "announce_2",
+                                    "announce_3", "announce_pin_asmr"])
+    return text, url, pattern_key, image_path
 
 
 def _find_image_for(file_path: str) -> str:
@@ -359,9 +392,9 @@ def main():
         sys.exit(1)
 
     if post_type == "morning":
-        text, url, pattern = generate_morning_post()
+        text, url, pattern, image_path = generate_morning_post()
     elif post_type == "evening":
-        text, url, pattern = generate_evening_post()
+        text, url, pattern, image_path = generate_evening_post()
     else:
         print(f"❌ 不明な投稿タイプ: {post_type} (morning / evening / custom を指定)")
         sys.exit(1)
@@ -371,6 +404,7 @@ def main():
     print(f"──────────────────────────────")
     print(f"📅 {date_str} / {post_type} / 型: {pattern}")
     print(f"🔗 URL: {url if url else '(なし)'}")
+    print(f"🖼️  画像: {image_path if image_path else '(なし)'}")
     print(f"📝 文字数: {len(text)}（URL除く）")
     print(f"──────────────────────────────")
     print(final_text)
@@ -380,7 +414,7 @@ def main():
         print("🧪 dry-run モード：投稿はスキップしました")
         return
 
-    post_tweet(final_text)
+    post_tweet(final_text, image_path)
 
 
 if __name__ == "__main__":
